@@ -8,6 +8,8 @@ use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 class ProcessTransaction implements ShouldQueue
 {
@@ -35,18 +37,28 @@ class ProcessTransaction implements ShouldQueue
      */
     public function handle()
     {
-        $user = \App\Models\Transaction::where('user_id', $this->transaction->orderNumber)
-            ->first();
+        try {
 
-        if (!$user) {
-            \App\Models\Transaction::create([
-                'transaction_id' => $this->transaction->transaction_id,
-                'user_id' => $this->transaction->orderNumber,
-                'sum' => $this->calculateSum($this->transaction->sum, $this->transaction->commissionFee),
-            ]);
-        } else {
-            $user->sum += $this->calculateSum($this->transaction->sum, $this->transaction->commissionFee);
-            $user->save();
+            $user = \App\Models\Transaction::where('user_id', $this->transaction->orderNumber)
+                ->first();
+
+            if (!$user) {
+                DB::beginTransaction();
+
+                \App\Models\Transaction::create([
+                    'transaction_id' => $this->transaction->transaction_id,
+                    'user_id' => $this->transaction->orderNumber,
+                    'sum' => $this->calculateSum($this->transaction->sum, $this->transaction->commissionFee),
+                ]);
+            } else {
+                $user->sum += $this->calculateSum($this->transaction->sum, $this->transaction->commissionFee);
+                $user->save();
+            }
+        } catch (\Exception $exception) {
+            DB::rollBack();
+            Log::alert(sprintf('Some problem with write to database code: %d, Message: %s',
+                $exception->getCode(),
+                $exception->getMessage()));
         }
 
     }
